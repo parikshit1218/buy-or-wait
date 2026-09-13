@@ -321,3 +321,4 @@ The core solution runs fully offline and deterministically without requiring ext
 2. **90-Day Simulation Horizon**: Cash flow forecasting is bounded to $90$ calendar days from `request_date`. Commitments beyond day 90 are not projected.
 3. **Monthly Cadence Assumption**: Recurring subscriptions and debits default to monthly cadence unless explicit historical gap intervals dictate otherwise.
 4. **Max 3 Spending Changes**: In accordance with competition rules, the spending change optimizer explores combinations up to size 3.
+
