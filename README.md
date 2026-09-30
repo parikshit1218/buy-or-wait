@@ -17,13 +17,15 @@ Deterministic, zero-hallucination multi-currency cash flow simulation, risk-awar
 8. [Spending-Change Optimizer](#8-spending-change-optimizer)
 9. [Validation & Decision Explanation Grounding](#9-validation--decision-explanation-grounding)
 10. [Financial Time Machine & Resilience Analysis](#10-financial-time-machine--resilience-analysis)
-11. [Setup & Installation](#11-setup--installation)
-12. [Running Locally](#12-running-locally)
-13. [Running Test Suite](#13-running-test-suite)
-14. [Generating `output.csv`](#14-generating-outputcsv)
-15. [Generating `usage_report.md`](#15-generating-usagereportmd)
-16. [Environment Variables](#16-environment-variables)
-17. [Known Limitations](#17-known-limitations)
+10.5. [FastAPI Web Layer](#105-fastapi-web-layer)
+11. [Frontend](#11-frontend)
+12. [Setup & Installation](#12-setup--installation)
+13. [Running Locally](#13-running-locally)
+14. [Running Test Suite](#14-running-test-suite)
+15. [Generating `output.csv`](#15-generating-outputcsv)
+16. [Generating `usage_report.md`](#16-generating-usagereportmd)
+17. [Environment Variables](#17-environment-variables)
+18. [Known Limitations](#18-known-limitations)
 
 ---
 
@@ -229,7 +231,61 @@ python code/main.py --resilience-analysis request_01 --unexpected-expense 5000
 
 ---
 
-## 11. Setup & Installation
+## 10.5. FastAPI Web Layer
+
+A thin FastAPI wrapper (`code/api.py`) exposes the deterministic engine over HTTP for the web frontend, without modifying any core evaluation logic used by the official `--evaluate` CLI pipeline.
+
+### Endpoints
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/health` | Health check |
+| POST | `/api/evaluate` | Evaluate a purchase decision, returns the same 8-column schema as output.csv |
+| GET | `/api/time-machine/{request_id}` | Financial Time Machine scenario comparison |
+| GET | `/api/resilience/{request_id}?unexpected_expense=<amount>` | Resilience stress-test analysis |
+| POST | `/api/voice-query` | Accepts natural-language text (from voice or typed input), extracts structured purchase intent via LLM, evaluates it through the deterministic engine, and returns a natural-language response |
+
+### Running the API server
+```bash
+cd code
+pip install -r requirements.txt
+uvicorn api:app --reload --port 8001
+```
+Interactive API docs available at `http://127.0.0.1:8001/docs`.
+
+### Currency
+All amounts across the API are presented in Indian Rupees (₹) regardless of the underlying dataset's original currency field, for consistency with the frontend's target audience.
+
+### Natural-language layer
+The `/api/voice-query` endpoint uses an LLM strictly as a translation layer: parsing free-text into structured intent, and rephrasing the deterministic engine's verdict into a natural, conversational tone. The LLM never computes or alters any financial figure — all numbers originate from the deterministic engine described in Sections 6-9.
+
+---
+
+## 11. Frontend
+
+A React (Vite + Tailwind CSS v4) frontend consumes the FastAPI layer above, located in the sibling `buy-or-wait-frontend/` directory.
+
+### Sections
+1. **Ask Out Loud** — voice/text assistant; user asks a purchase question by speaking or typing, receives a spoken, data-grounded response
+2. **Can I Buy This?** — direct item + amount input, returns the deterministic verdict
+3. **My Money** — user-entered monthly income/expenses used to personalize evaluations
+
+### Setup
+```bash
+cd buy-or-wait-frontend
+npm install
+npm run dev
+```
+Runs at `http://localhost:5173`. Requires `.env` with:
+```env
+VITE_API_URL=http://127.0.0.1:8001
+```
+
+### Voice
+Speech-to-text and text-to-speech use the browser's Web Speech API. Tested primarily in Chrome.
+
+---
+
+## 12. Setup & Installation
 
 ### Requirements
 - **Python**: 3.10+ (tested on Python 3.14)
@@ -246,7 +302,7 @@ pip install pytest
 
 ---
 
-## 12. Running Locally
+## 13. Running Locally
 
 ### Main CLI Interface
 ```bash
@@ -262,7 +318,7 @@ python code/main.py --request request_01
 
 ---
 
-## 13. Running Test Suite
+## 14. Running Test Suite
 
 Execute the complete automated test suite (131 unit and integration tests across 18 test files):
 
@@ -273,7 +329,7 @@ python -m pytest code/tests -v
 
 ---
 
-## 14. Generating `output.csv`
+## 15. Generating `output.csv`
 
 To execute the evaluation pipeline across all 250 test requests and generate `output.csv`:
 
@@ -290,7 +346,7 @@ This will:
 
 ---
 
-## 15. Generating `usage_report.md`
+## 16. Generating `usage_report.md`
 
 `usage_report.md` is automatically refreshed during pipeline evaluation at `code/evaluation/usage_report.md`:
 
@@ -302,7 +358,7 @@ The report details model calls, execution time, token metrics ($0$ tokens for de
 
 ---
 
-## 16. Environment Variables
+## 17. Environment Variables
 
 The core solution runs fully offline and deterministically without requiring external API keys. Optional configuration variables:
 
@@ -315,10 +371,12 @@ The core solution runs fully offline and deterministically without requiring ext
 
 ---
 
-## 17. Known Limitations
+## 18. Known Limitations
 
 1. **Fixed Historical FX Rates**: Currency conversions rely strictly on dated entries in `dataset/exchange_rates.csv`. If an unrecorded foreign currency pair date is requested, the event cannot enter cash state (no speculative live rate fetching).
 2. **90-Day Simulation Horizon**: Cash flow forecasting is bounded to $90$ calendar days from `request_date`. Commitments beyond day 90 are not projected.
 3. **Monthly Cadence Assumption**: Recurring subscriptions and debits default to monthly cadence unless explicit historical gap intervals dictate otherwise.
 4. **Max 3 Spending Changes**: In accordance with competition rules, the spending change optimizer explores combinations up to size 3.
+5. **Browser-dependent voice support**: Speech recognition (Web Speech API) has inconsistent support outside Chromium-based browsers.
+6. **Frontend currency display**: The frontend always displays INR regardless of a user's dataset-defined home_currency; this is a presentation-layer simplification for the demo and does not affect the underlying deterministic calculations, which still respect each user's actual currency as documented in Section 4.
 
