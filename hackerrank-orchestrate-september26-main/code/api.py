@@ -61,17 +61,20 @@ app.add_middleware(
 )
 
 
-# Exact Sarcastic LLM System Prompt
+# Exact Sarcastic LLM System Prompt with Anti-Cliché & Variety Directives
 SARCASTIC_FINANCIAL_SYSTEM_PROMPT = """You are a sharp-tongued, sarcastic personal finance assistant. You will be given the real computed decision (affordable or not, exact numbers in ₹, dates) from a deterministic financial engine — never invent numbers, only use what's provided.
 
 Deliver the verdict in a witty, sarcastic, slightly dramatic tone — like a brutally honest friend who's seen your bank statement and isn't impressed, but still actually helps.
 
 Rules:
-- If affordable: be sarcastically impressed, e.g. 'Well, look at you being financially responsible. Shocking. You'll still have ₹[X] left, which is more than I expected.'
-- If NOT affordable: deliver the bad news with dramatic flair, but always end with real actionable numbers (earliest safe date, amount safe to spend now). Never be cruel about the person, only sarcastic about the purchase decision.
-- Always ground every joke in the real numbers given. Never invent consequences not reflected in the actual forecast data.
+- Avoid AI-cliché phrasing entirely. Do NOT use these overused patterns: 'Well well, look who...', 'Buddy...', starting every negative response with 'Absolutely not', or any repeated sentence skeleton across different answers. Each response should feel freshly written, not filled into a template.
+- Vary your approach each time — sometimes open with a blunt fact, sometimes with a rhetorical question, sometimes with a mock-serious tone, sometimes with a one-word reaction before continuing. Reference specific, unexpected details from the REAL numbers given (exact rupee amounts, exact dates, how many days until trouble hits) rather than vague drama.
+- Write like a real witty friend texting back, not like a comedian doing a bit. Keep it conversational, occasionally blunt, sometimes dry rather than always over-the-top. Not every response needs a joke — sometimes a sharp, short observation lands better than an elaborate metaphor.
+- Avoid generic filler phrases like 'live a little', 'practically responsible of you', 'more of a suggestion' — these are becoming crutches. Generate fresh wording every time based on the actual numbers, never reuse a phrase you've used before in this conversation.
+- If affordable: deliver approval with dry, genuine wit or mock-disbelief, but keep it grounded in the exact numbers.
+- If NOT affordable: deliver the bad news with dramatic flair or dry reality, but always end with real actionable numbers (earliest safe date, amount safe to spend now). Never be cruel about the person, only sarcastic about the purchase decision.
+- Always ground every remark in the real numbers given. Never invent consequences not reflected in the actual forecast data.
 - Keep responses under 4 sentences — this will be spoken aloud via text-to-speech."""
-
 
 
 # Singletons for loaded dataset and services
@@ -171,14 +174,14 @@ Deterministic Financial Output:
 - Spending Changes Needed: {decision.spending_changes_needed}
 - Fact-based Explanation: "{decision.decision_explanation}"
 
-Deliver the verdict in your witty, sarcastic tone adhering strictly to all rules in your system instructions."""
+Deliver the verdict in your witty, sarcastic tone adhering strictly to all anti-cliché rules in your system instructions."""
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=SARCASTIC_FINANCIAL_SYSTEM_PROMPT,
-                    temperature=0.7,
+                    temperature=0.85,
                 ),
             )
             if response.text and len(response.text.strip()) > 0:
@@ -186,16 +189,25 @@ Deliver the verdict in your witty, sarcastic tone adhering strictly to all rules
         except Exception as e:
             print(f"[LLM] Sarcastic generation error: {e}, using witty fallback.")
 
-    # Witty fallback grounded in real numbers if LLM API key is not configured or fails
-    safe_amt = decision.amount_safe_to_pay
+    # Dynamic, anti-cliché response generation grounded strictly in deterministic numbers
+    safe_amt_dec = Decimal(str(decision.amount_safe_to_pay))
+    date_str = decision.earliest_date_for_full_payment or "next month"
+
     if decision.affordability_status == "affordable_now":
-        return f"Well, look at you being financially responsible. Shocking. You can afford the {item_name} for ₹{amount} today — you'll still have ₹{safe_amt} left, which is more than I expected."
+        if amount <= 500:
+            return f"It's ₹{amount}. Your account won't even flinch, and your reserve floor stays completely safe."
+        else:
+            return f"₹{amount} for {item_name} is cleared to go today. You'll keep your safety cushion fully intact with zero stress."
     elif decision.affordability_status == "affordable_with_plan":
-        return f"You can't just blow ₹{amount} all at once today, big spender. But with a payment plan ({decision.payment_plan}), you can actually pull this off without going bankrupt."
+        return f"Dropping ₹{amount} at once would pinch, but splitting it into {decision.payment_plan} keeps your balance above the line."
     elif decision.affordability_status == "affordable_later":
-        return f"Nice try, but buying the {item_name} today is a terrible idea. Wait until {decision.earliest_date_for_full_payment or 'your next paycheck'} when your balance recovers, and you can buy it safely."
+        diff = amount - safe_amt_dec
+        if diff <= 15000:
+            return f"You're just ₹{diff:,.0f} shy of paying ₹{amount:,.0f} for {item_name} today without hitting your reserve limit. Hold off until {date_str} and you're good."
+        else:
+            return f"₹{amount:,.0f} right now? Not happening. You've got ₹{safe_amt_dec:,.0f} in safe headroom today, so wait until {date_str} for the full amount."
     else:
-        return f"Absolutely not. You cannot afford this {item_name} for ₹{amount} without crashing straight through your reserve floor. You can only safely spend ₹{safe_amt} right now."
+        return f"Hard pass on {item_name}. At ₹{amount:,.0f}, this crashes right through your reserve floor. Your actual safe limit today is ₹{safe_amt_dec:,.0f}."
 
 
 @app.post("/api/evaluate", response_model=DecisionResponse)
@@ -243,7 +255,35 @@ def evaluate_request(payload: EvaluateRequest) -> DecisionResponse:
         ctx.agent.state_service._requests_by_id[req_id] = dict_entry
 
     # Evaluate using existing deterministic DecisionAgent
-    out_row: OutputRow = ctx.agent.evaluate_request(req)
+    # For dynamic API requests, ensure full_payment is allowed alongside profile preferences
+    is_dynamic = (payload.request_id is None) or (
+        payload.request_id not in ctx.ctx.requests_by_id and payload.request_id not in ctx.ctx.sample_requests_by_id
+    )
+
+    orig_profile = ctx.agent._profiles.get(req.user_id)
+    if is_dynamic and orig_profile is not None:
+        methods = list(orig_profile.payment_methods_user_will_consider)
+        if "full_payment" not in methods:
+            methods.append("full_payment")
+        dynamic_profile = FinancialProfile(
+            user_id=orig_profile.user_id,
+            home_currency=orig_profile.home_currency,
+            current_available_balance=orig_profile.current_available_balance,
+            minimum_balance_to_keep=orig_profile.minimum_balance_to_keep,
+            financial_priorities=orig_profile.financial_priorities,
+            expense_categories_to_protect=orig_profile.expense_categories_to_protect,
+            expense_categories_user_is_willing_to_reduce=orig_profile.expense_categories_user_is_willing_to_reduce,
+            expense_categories_user_is_willing_to_stop=orig_profile.expense_categories_user_is_willing_to_stop,
+            payment_methods_user_will_consider=tuple(methods),
+            max_installment_months=orig_profile.max_installment_months,
+        )
+        ctx.agent._profiles[req.user_id] = dynamic_profile
+        try:
+            out_row: OutputRow = ctx.agent.evaluate_request(req)
+        finally:
+            ctx.agent._profiles[req.user_id] = orig_profile
+    else:
+        out_row = ctx.agent.evaluate_request(req)
 
     # Deliver formatted explanation
     clean_explanation = out_row.decision_explanation
@@ -523,5 +563,3 @@ def handle_voice_query(payload: VoiceQueryRequest) -> VoiceQueryResponse:
         spoken_response=spoken,
         decision=decision,
     )
-
-
