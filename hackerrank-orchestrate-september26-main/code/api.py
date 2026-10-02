@@ -47,6 +47,7 @@ origins = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://buy-or-wait-azure.vercel.app",
 ]
 if frontend_url and frontend_url not in origins:
     origins.append(frontend_url)
