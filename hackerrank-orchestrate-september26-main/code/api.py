@@ -47,7 +47,6 @@ origins = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://buy-or-wait-azure.vercel.app",
 ]
 if frontend_url and frontend_url not in origins:
     origins.append(frontend_url)
@@ -55,7 +54,7 @@ if frontend_url and frontend_url not in origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://buy-or-wait.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
